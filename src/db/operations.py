@@ -335,7 +335,7 @@ def fn_crypt(cadena: str) -> str:
             crypt += char
     return crypt
 
-def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = None) -> tuple[str, list]:
+def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = None, use_csv_fallback: bool = False) -> tuple[str, list]:
     """Construye una subconsulta optimizada usando INTERSECT y EXCEPT.
     
     Busca los términos exclusivamente en la columna 'valor' (que contiene los datos encriptados).
@@ -346,17 +346,21 @@ def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = N
     if filtros_si:
         terms_si = list(dict.fromkeys([t.strip() for t in filtros_si.split(",") if t.strip()]))
         for term in terms_si:
-            variants = list(dict.fromkeys([
-                term,
-                term.lower(),
-                term.upper(),
-                term.capitalize()
-            ]))
             term_clauses = []
-            for v in variants:
-                encrypted = fn_crypt(v)
-                term_clauses.append("valor LIKE ?")
-                params.append(f"%{encrypted}%")
+            if use_csv_fallback:
+                term_clauses.append("valor ILIKE ?")
+                params.append(f"%{term}%")
+            else:
+                variants = list(dict.fromkeys([
+                    term,
+                    term.lower(),
+                    term.upper(),
+                    term.capitalize()
+                ]))
+                for v in variants:
+                    encrypted = fn_crypt(v)
+                    term_clauses.append("valor LIKE ?")
+                    params.append(f"%{encrypted}%")
             
             clause_sql = " OR ".join(term_clauses)
             subqueries.append(f"""(
@@ -372,17 +376,21 @@ def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = N
     if filtros_no:
         terms_no = list(dict.fromkeys([t.strip() for t in filtros_no.split(",") if t.strip()]))
         for term in terms_no:
-            variants = list(dict.fromkeys([
-                term,
-                term.lower(),
-                term.upper(),
-                term.capitalize()
-            ]))
             term_clauses = []
-            for v in variants:
-                encrypted = fn_crypt(v)
-                term_clauses.append("valor LIKE ?")
-                params.append(f"%{encrypted}%")
+            if use_csv_fallback:
+                term_clauses.append("valor ILIKE ?")
+                params.append(f"%{term}%")
+            else:
+                variants = list(dict.fromkeys([
+                    term,
+                    term.lower(),
+                    term.upper(),
+                    term.capitalize()
+                ]))
+                for v in variants:
+                    encrypted = fn_crypt(v)
+                    term_clauses.append("valor LIKE ?")
+                    params.append(f"%{encrypted}%")
                 
             clause_sql = " OR ".join(term_clauses)
             neg_subqueries.append(f"""(
@@ -402,7 +410,7 @@ def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = N
     return final_sql, params
 
 def consultar_estadisticas_hc(
-    agrupar_por: list[str] | str,
+    agrupar_por: list[str] = None,
     filtros_si: str = None,
     filtros_no: str = None,
     fecha_inicio: str = None,
@@ -410,8 +418,12 @@ def consultar_estadisticas_hc(
     solo_activos: bool = False,
     tipo_registro: str = None,
     tipo_conteo: str = "pacientes"
-) -> dict | str:
-    """Consulta estadísticas de pacientes en la vista v_historiaClinica de forma flexible y segura."""
+) -> str | dict:
+    conn = get_db_connection()
+    use_csv_fallback = (conn == "FALLBACK_CSV")
+    if not conn:
+        return "ERROR: No se pudo conectar a la base de datos."
+
     # 1. Definición estricta de dimensiones permitidas y sus expresiones SQL
     DIMENSIONS = {
         "edad": {
@@ -535,7 +547,7 @@ def consultar_estadisticas_hc(
     
     # Filtro clínico de cohorte (filtros_si / filtros_no)
     if filtros_si or filtros_no:
-        cohort_sql, cohort_params = build_matching_patients_subquery(filtros_si, filtros_no)
+        cohort_sql, cohort_params = build_matching_patients_subquery(filtros_si, filtros_no, use_csv_fallback=use_csv_fallback)
         where_clauses.append(f"hc_paciente IN (\n        {cohort_sql}\n    )")
         params.extend(cohort_params)
         
@@ -583,12 +595,15 @@ def consultar_estadisticas_hc(
         ORDER BY {alias_count} DESC
         """
 
-    conn = get_db_connection()
-    if not conn:
-        return "ERROR: No se pudo conectar a la base de datos."
-        
     try:
-        df = pd.read_sql_query(query, conn, params=params)
+        if use_csv_fallback:
+            import duckdb
+            # Adaptaciones para DuckDB (SQLite / Postgres engine)
+            query = query.replace("v_historiaClinica", "read_csv_auto('data/sample_v_historiaClinica.csv', sep=';', header=True)")
+            query = query.replace("GETDATE()", "CURRENT_DATE")
+            df = duckdb.execute(query, params).df()
+        else:
+            df = pd.read_sql_query(query, conn, params=params)
         
         display_query = query
         if params:
@@ -652,4 +667,5 @@ def consultar_estadisticas_hc(
     except Exception as e:
         return f"ERROR al ejecutar la consulta SQL: {str(e)}"
     finally:
-        conn.close()
+        if not use_csv_fallback and conn:
+            conn.close()

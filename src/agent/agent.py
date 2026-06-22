@@ -23,12 +23,19 @@ load_dotenv(dotenv_path=os.path.join(base_dir, '.env'))
 OLLAMA_API_BASE = os.getenv("OLLAMA_API_BASE", "http://10.10.0.48:11434")
 os.environ["OLLAMA_API_BASE"] = OLLAMA_API_BASE
 
-# Configurar el modelo local usando LiteLlm
-model_name = os.getenv("LLM_MODEL_QA", "ministral-3:3b-instruct-2512-q8_0")
-local_llm = LiteLlm(
-    model=f"ollama_chat/{model_name}",
-    api_base=OLLAMA_API_BASE
-)
+# Habilitar Fallback a Gemini si está configurado
+USE_GEMINI = os.getenv("USE_GEMINI", "false").lower() == "true"
+
+if USE_GEMINI and os.getenv("GEMINI_API_KEY"):
+    from google.adk.models.gemini import Gemini
+    active_llm = Gemini(model_name="gemini-2.5-flash")
+else:
+    # Configurar el modelo local usando LiteLlm
+    model_name = os.getenv("LLM_MODEL_QA", "ministral-3:3b-instruct-2512-q8_0")
+    active_llm = LiteLlm(
+        model=f"ollama_chat/{model_name}",
+        api_base=OLLAMA_API_BASE
+    )
 
 # Desactivar callbacks de logging de LiteLLM que intentan conectar a
 # servidores externos y generan errores de timeout en entornos sin salida a internet.
@@ -162,7 +169,7 @@ async def my_after_model_callback(callback_context, llm_response):
 # ADK lo inicializará correctamente dentro del runner async.
 root_agent = LlmAgent(
     name="agente_estadisticas_clinicas",
-    model=local_llm,
+    model=active_llm,
     instruction=system_instruction,
     tools=[
         McpToolset(

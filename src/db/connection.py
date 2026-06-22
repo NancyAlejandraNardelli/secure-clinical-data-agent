@@ -69,5 +69,5 @@ def get_db_connection():
                 f.write(msg)
         except Exception:
             pass
-        return None
+        return "FALLBACK_CSV"
 

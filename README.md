@@ -10,12 +10,16 @@ Este proyecto implementa un agente de Inteligencia Artificial diseñado para con
 
 ```text
 agentes-adk/
+├── .agents/
+│   └── skills/
+│       ├── clinical-statistics/ # Skill (Intent Routing y extracción de parámetros)
+│
 ├── src/
 │   ├── __init__.py
 │   ├── db/
 │   │   ├── __init__.py
 │   │   ├── connection.py      # Conexión a la base de datos (pyodbc)
-│   │   └── operations.py      # Consultas SQL, validaciones y Pandas DataFrames
+│   │   └── operations.py      # Consultas SQL seguras y Pandas DataFrames
 │   ├── mcp/
 │   │   ├── __init__.py
 │   │   └── server.py          # Servidor FastMCP que expone las herramientas de BD

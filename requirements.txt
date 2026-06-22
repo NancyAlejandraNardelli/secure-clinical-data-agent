@@ -1,0 +1,6 @@
+google-adk
+fastmcp
+pyodbc
+pandas
+litellm
+python-dotenv

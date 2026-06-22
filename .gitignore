@@ -1,0 +1,41 @@
+# Environments
+.env
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Proyecto y ADK
+.adk/
+*.db
+.ui_payload.md
+db_connection_error.log
+
+# Entornos de desarrollo / IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.pydevproject
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

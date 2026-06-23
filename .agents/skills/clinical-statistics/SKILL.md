@@ -8,7 +8,7 @@ description: ÚNICA herramienta para consultar estadísticas, conteos y cruces d
 Tu único trabajo es extraer los parámetros de la consulta del usuario y pasárselos a la herramienta `consultar_estadisticas_hc`.
 
 ## Parámetros Permitidos
-- `agrupar_por` (Array de strings): Puedes incluir UNA O VARIAS de estas dimensiones exactas: ["edad", "sexo", "zona", "servicio", "especialidad", "diagnostico", "obra_social", "año", "mes"].
+- `agrupar_por` (Array de strings): Puedes incluir UNA O VARIAS de estas dimensiones exactas: ["edad", "sexo", "zona", "servicio", "especialidad", "valor_clinico", "obra_social", "año", "mes"].
 - `filtros_si`: Si el usuario menciona diagnósticos, síntomas o medicamentos que DEBEN estar presentes (separados por coma, ej: "Hipertensión, Amlodipina"), envíalos aquí.
 - `filtros_no`: Si el usuario menciona patologías que NO deben estar presentes (ej: "Enalapril"), envíalos aquí.
 - `fecha_inicio`: Si el usuario especifica una fecha límite inferior o rango (ej: "desde enero 2026", "en el último mes"), inyecta la fecha en formato 'YYYY-MM-DD'.
@@ -76,12 +76,19 @@ A continuación se presentan ejemplos de cómo debes extraer la intención del u
   "fecha_fin": "2025-12-31"
 }
 
-### 6. Análisis Geográfico Epidemiológico
+### 6. Análisis de Valores Clínicos (Cualquier formulario médico)
 **Usuario:** "Mostrame los principales diagnósticos agrupados por zona para saber de qué se enferman en cada barrio."
 
 {
-  "agrupar_por": ["diagnostico", "zona"],
+  "agrupar_por": ["valor_clinico", "zona"],
   "tipo_registro": "Diagnóstico"
+}
+
+**Usuario:** "Dame los motivos de consulta más frecuentes separados por sexo."
+
+{
+  "agrupar_por": ["valor_clinico", "sexo"],
+  "tipo_registro": "Motivo de consulta"
 }
 
 ### 7. Conteo Crudo Filtrado
@@ -109,3 +116,6 @@ A continuación se presentan ejemplos de cómo debes extraer la intención del u
 ## 🛡️ CONSTRAINTS
 - PROHIBIDO escribir consultas SQL manuales.
 - PROHIBIDO analizar los resultados. Tu ejecución termina al llamar a la herramienta.
+- **MEMORIA DE CONTEXTO:** NO arrastres filtros (como medicamentos o diagnósticos) de consultas anteriores a menos que el usuario lo pida explícitamente. Si el usuario hace una nueva pregunta (ej: "ahora cruzalo por edad"), debes OMITIR el `filtros_si` anterior.
+- **EXTRACCIÓN EXACTA:** Si el usuario pide cruzar o ver la distribución de "X por Y" (ej: "motivos de consulta por sexo"), DEBES incluir AMBOS en el array `agrupar_por` (ej: `["valor_clinico", "sexo"]`). Nunca omitas dimensiones solicitadas.
+- **REGLA DE VALOR CLÍNICO:** Si el usuario te pide agrupar por campos clínicos como enfermedades, motivos de consulta, indicaciones, dietas, etc., SIEMPRE debes usar la dimensión `"valor_clinico"` en `agrupar_por` **Y OBLIGATORIAMENTE** rellenar `tipo_registro` con el nombre del formulario (ej. `"Diagnóstico"` o `"Motivo de consulta"`). Si el usuario solo menciona "enfermedades" o "patologías" sin especificar, asume `tipo_registro = "Diagnóstico"`.

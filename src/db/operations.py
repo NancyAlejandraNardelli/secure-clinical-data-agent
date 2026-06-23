@@ -416,6 +416,11 @@ def consultar_estadisticas_hc(
     if not conn:
         return "ERROR: No se pudo conectar a la base de datos."
 
+
+    if ("diagnostico" in agrupar_por or "valor_clinico" in agrupar_por) and not tipo_registro:
+        tipo_registro = "Diagnóstico"
+
+
     age_sql_tsql = """CASE 
                 WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
                 WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
@@ -431,6 +436,14 @@ def consultar_estadisticas_hc(
             END"""
 
     age_sql = age_sql_duckdb if use_csv_fallback else age_sql_tsql
+
+    diag_sql_tsql = "COALESCE(NULLIF(CAST(dbo.fnCrypt(valor) AS VARCHAR(MAX)), ''), 'Sin Dato')"
+    diag_sql_duckdb = "COALESCE(NULLIF(valor, ''), 'Sin Dato')"
+    diag_sql = diag_sql_duckdb if use_csv_fallback else diag_sql_tsql
+
+    alias_clinico = tipo_registro.replace(" ", "_") if tipo_registro else "Dato_Clinico"
+
+    alias_clinico = tipo_registro.replace(" ", "_") if tipo_registro else "Dato_Clinico"
 
     # 1. Definición estricta de dimensiones permitidas y sus expresiones SQL
     DIMENSIONS = {
@@ -460,9 +473,14 @@ def consultar_estadisticas_hc(
             "alias": "Especialidad"
         },
         "diagnostico": {
-            "select": "COALESCE(NULLIF(estructura, ''), 'Sin Dato') AS Diagnostico",
-            "group": "COALESCE(NULLIF(estructura, ''), 'Sin Dato')",
+            "select": f"{diag_sql} AS Diagnostico",
+            "group": diag_sql,
             "alias": "Diagnostico"
+        },
+        "valor_clinico": {
+            "select": f"{diag_sql} AS {alias_clinico}",
+            "group": diag_sql,
+            "alias": alias_clinico
         },
         "obra_social": {
             "select": "COALESCE(NULLIF(CAST(pac_Os AS VARCHAR(50)), ''), 'Sin Obra Social') AS Obra_Social",
@@ -599,8 +617,12 @@ def consultar_estadisticas_hc(
             # Adaptaciones para DuckDB (SQLite / Postgres engine)
             query = query.replace("v_historiaClinica", "read_csv_auto('data/sample_v_historiaClinica.csv', sep=';', header=True)")
             query = query.replace("GETDATE()", "CURRENT_DATE")
+            if valid_keys:
+                query += "\n        LIMIT 50"
             df = duckdb.execute(query, params).df()
         else:
+            if valid_keys:
+                query = query.replace("SELECT ", "SELECT TOP 50 ", 1)
             df = pd.read_sql_query(query, conn, params=params)
         
         display_query = query
@@ -615,6 +637,10 @@ def consultar_estadisticas_hc(
             # Si hay exactamente 2 dimensiones, pivotar automáticamente
             if len(valid_keys) == 2:
                 try:
+                    # Forzar que la dimensión clínica sea siempre las filas (index) para evitar miles de columnas
+                    if valid_keys[1] in ["diagnostico", "valor_clinico"]:
+                        valid_keys[0], valid_keys[1] = valid_keys[1], valid_keys[0]
+
                     alias1 = DIMENSIONS[valid_keys[0]]["alias"]
                     alias2 = DIMENSIONS[valid_keys[1]]["alias"]
                     

@@ -346,21 +346,17 @@ def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = N
     if filtros_si:
         terms_si = list(dict.fromkeys([t.strip() for t in filtros_si.split(",") if t.strip()]))
         for term in terms_si:
+            variants = list(dict.fromkeys([
+                term,
+                term.lower(),
+                term.upper(),
+                term.capitalize()
+            ]))
             term_clauses = []
-            if use_csv_fallback:
-                term_clauses.append("valor ILIKE ?")
-                params.append(f"%{term}%")
-            else:
-                variants = list(dict.fromkeys([
-                    term,
-                    term.lower(),
-                    term.upper(),
-                    term.capitalize()
-                ]))
-                for v in variants:
-                    encrypted = fn_crypt(v)
-                    term_clauses.append("valor LIKE ?")
-                    params.append(f"%{encrypted}%")
+            for v in variants:
+                encrypted = fn_crypt(v)
+                term_clauses.append("valor LIKE ?")
+                params.append(f"%{encrypted}%")
             
             clause_sql = " OR ".join(term_clauses)
             subqueries.append(f"""(
@@ -376,22 +372,18 @@ def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = N
     if filtros_no:
         terms_no = list(dict.fromkeys([t.strip() for t in filtros_no.split(",") if t.strip()]))
         for term in terms_no:
+            variants = list(dict.fromkeys([
+                term,
+                term.lower(),
+                term.upper(),
+                term.capitalize()
+            ]))
             term_clauses = []
-            if use_csv_fallback:
-                term_clauses.append("valor ILIKE ?")
-                params.append(f"%{term}%")
-            else:
-                variants = list(dict.fromkeys([
-                    term,
-                    term.lower(),
-                    term.upper(),
-                    term.capitalize()
-                ]))
-                for v in variants:
-                    encrypted = fn_crypt(v)
-                    term_clauses.append("valor LIKE ?")
-                    params.append(f"%{encrypted}%")
-                
+            for v in variants:
+                encrypted = fn_crypt(v)
+                term_clauses.append("valor LIKE ?")
+                params.append(f"%{encrypted}%")
+            
             clause_sql = " OR ".join(term_clauses)
             neg_subqueries.append(f"""(
                 SELECT hc_paciente FROM v_historiaClinica WHERE {clause_sql}

@@ -424,21 +424,27 @@ def consultar_estadisticas_hc(
     if not conn:
         return "ERROR: No se pudo conectar a la base de datos."
 
+    age_sql_tsql = """CASE 
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
+                ELSE 'Adultos Mayores / Geriatría (65+)'
+            END"""
+            
+    age_sql_duckdb = """CASE 
+                WHEN date_diff('year', CAST(pac_Nacimiento AS DATE), CURRENT_DATE) < 15 THEN 'Pediátrico (0-14)'
+                WHEN date_diff('year', CAST(pac_Nacimiento AS DATE), CURRENT_DATE) BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
+                WHEN date_diff('year', CAST(pac_Nacimiento AS DATE), CURRENT_DATE) BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
+                ELSE 'Adultos Mayores / Geriatría (65+)'
+            END"""
+
+    age_sql = age_sql_duckdb if use_csv_fallback else age_sql_tsql
+
     # 1. Definición estricta de dimensiones permitidas y sus expresiones SQL
     DIMENSIONS = {
         "edad": {
-            "select": """CASE 
-                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
-                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
-                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
-                ELSE 'Adultos Mayores / Geriatría (65+)'
-            END AS Rango_Etario""",
-            "group": """CASE 
-                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
-                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
-                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
-                ELSE 'Adultos Mayores / Geriatría (65+)'
-            END""",
+            "select": f"{age_sql} AS Rango_Etario",
+            "group": age_sql,
             "alias": "Rango_Etario"
         },
         "sexo": {

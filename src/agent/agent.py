@@ -27,7 +27,7 @@ os.environ["OLLAMA_API_BASE"] = OLLAMA_API_BASE
 USE_GEMINI = os.getenv("USE_GEMINI", "false").lower() == "true"
 
 if USE_GEMINI and os.getenv("GEMINI_API_KEY"):
-    from google.adk.models.gemini import Gemini
+    from google.adk.models.google_llm import Gemini
     active_llm = Gemini(model_name="gemini-2.5-flash")
 else:
     # Configurar el modelo local usando LiteLlm

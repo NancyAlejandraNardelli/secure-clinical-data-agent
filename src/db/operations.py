@@ -409,15 +409,38 @@ def consultar_estadisticas_hc(
     fecha_fin: str = None,
     solo_activos: bool = False,
     tipo_registro: str = None,
-    tipo_conteo: str = "pacientes"
+    tipo_conteo: str = "pacientes",
+    filtro_sexo: str = None,
+    filtro_zona: str = None,
+    filtro_servicio: str = None,
+    filtro_especialidad: str = None,
+    edad_min: int = None,
+    edad_max: int = None
 ) -> str | dict:
     conn = get_db_connection()
     use_csv_fallback = (conn == "FALLBACK_CSV")
     if not conn:
         return "ERROR: No se pudo conectar a la base de datos."
 
+    # Parsear agrupar_por de forma segura al inicio para evitar TypeErrors y configurar defaults
+    raw_keys = []
+    if agrupar_por is not None:
+        if isinstance(agrupar_por, list):
+            raw_keys = agrupar_por
+        elif isinstance(agrupar_por, str):
+            clean_str = agrupar_por.strip()
+            # Tratar de parsear como JSON array, ej: ["zona", "edad"]
+            if clean_str.startswith("[") and clean_str.endswith("]"):
+                try:
+                    raw_keys = json.loads(clean_str)
+                except Exception:
+                    clean_str = clean_str[1:-1].replace('"', '').replace("'", "")
+                    raw_keys = [k.strip() for k in clean_str.split(",") if k.strip()]
+            else:
+                raw_keys = [k.strip() for k in clean_str.split(",") if k.strip()]
 
-    if ("diagnostico" in agrupar_por or "valor_clinico" in agrupar_por) and not tipo_registro:
+    raw_keys_lower = [k.lower().strip() for k in raw_keys if isinstance(k, str)]
+    if ("diagnostico" in raw_keys_lower or "valor_clinico" in raw_keys_lower) and not tipo_registro:
         tipo_registro = "Diagnóstico"
 
 
@@ -440,8 +463,6 @@ def consultar_estadisticas_hc(
     diag_sql_tsql = "COALESCE(NULLIF(CAST(dbo.fnCrypt(valor) AS VARCHAR(MAX)), ''), 'Sin Dato')"
     diag_sql_duckdb = "COALESCE(NULLIF(valor, ''), 'Sin Dato')"
     diag_sql = diag_sql_duckdb if use_csv_fallback else diag_sql_tsql
-
-    alias_clinico = tipo_registro.replace(" ", "_") if tipo_registro else "Dato_Clinico"
 
     alias_clinico = tipo_registro.replace(" ", "_") if tipo_registro else "Dato_Clinico"
 
@@ -522,22 +543,7 @@ def consultar_estadisticas_hc(
         "month": "mes"
     }
 
-    # 2. Parsear agrupar_por
-    raw_keys = []
-    if agrupar_por is not None:
-        if isinstance(agrupar_por, list):
-            raw_keys = agrupar_por
-        elif isinstance(agrupar_por, str):
-            clean_str = agrupar_por.strip()
-            # Tratar de parsear como JSON array, ej: ["zona", "edad"]
-            if clean_str.startswith("[") and clean_str.endswith("]"):
-                try:
-                    raw_keys = json.loads(clean_str)
-                except Exception:
-                    clean_str = clean_str[1:-1].replace('"', '').replace("'", "")
-                    raw_keys = [k.strip() for k in clean_str.split(",") if k.strip()]
-            else:
-                raw_keys = [k.strip() for k in clean_str.split(",") if k.strip()]
+    # 2. agrupar_por ya fue parseado al inicio como raw_keys
     
     # 3. Normalizar y validar dimensiones de agrupación
     valid_keys = []
@@ -579,10 +585,58 @@ def consultar_estadisticas_hc(
     if solo_activos:
         where_clauses.append("(fechaInicio IS NOT NULL AND (fechaCese IS NULL OR fechaCese >= GETDATE()))")
         
-    # Filtro de tipo de registro en estructura
+    # Filtro de tipo de registro en estructura (búsqueda inteligente e insensible a mayúsculas/acentos)
     if tipo_registro:
-        where_clauses.append("estructura LIKE ?")
-        params.append(f"%{tipo_registro}%")
+        term = tipo_registro
+        if tipo_registro.lower().strip() in ["diagnóstico", "diagnostico", "diagnósticos", "diagnosticos"]:
+            term = "Diagnóstic"
+        
+        if use_csv_fallback:
+            where_clauses.append("estructura ILIKE ?")
+        else:
+            where_clauses.append("estructura LIKE ?")
+        params.append(f"%{term}%")
+
+    # Filtro por Sexo (insensible a espacios al final comunes en tipos CHAR)
+    if filtro_sexo:
+        where_clauses.append("TRIM(pac_Sexo) = ?")
+        params.append(filtro_sexo.strip().upper())
+
+    # Filtro por Zona/Procedencia
+    if filtro_zona:
+        where_clauses.append("proc_Descripcion = ?")
+        params.append(filtro_zona.strip())
+
+    # Filtro por Servicio
+    if filtro_servicio:
+        if use_csv_fallback:
+            where_clauses.append("Servicio_Descripcion ILIKE ?")
+        else:
+            where_clauses.append("Servicio_Descripcion LIKE ?")
+        params.append(f"%{filtro_servicio.strip()}%")
+
+    # Filtro por Especialidad
+    if filtro_especialidad:
+        if use_csv_fallback:
+            where_clauses.append("Especialidad_Descripcion ILIKE ?")
+        else:
+            where_clauses.append("Especialidad_Descripcion LIKE ?")
+        params.append(f"%{filtro_especialidad.strip()}%")
+
+    # Filtros de Edad (calculados dinámicamente)
+    if edad_min:
+        if use_csv_fallback:
+            where_clauses.append("date_diff('year', CAST(pac_Nacimiento AS DATE), CURRENT_DATE) >= ?")
+        else:
+            where_clauses.append("DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) >= ?")
+        params.append(int(edad_min))
+
+    if edad_max:
+        if use_csv_fallback:
+            where_clauses.append("date_diff('year', CAST(pac_Nacimiento AS DATE), CURRENT_DATE) <= ?")
+        else:
+            where_clauses.append("DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) <= ?")
+        params.append(int(edad_max))
         
     where_sql = "\n      AND ".join(where_clauses)
     
@@ -625,6 +679,13 @@ def consultar_estadisticas_hc(
                 query = query.replace("SELECT ", "SELECT TOP 50 ", 1)
             df = pd.read_sql_query(query, conn, params=params)
         
+        if use_csv_fallback and not df.empty:
+            # Decriptar columnas clínicas si estamos en fallback local
+            cols_to_decrypt = ["Diagnostico", alias_clinico]
+            for col in cols_to_decrypt:
+                if col in df.columns:
+                    df[col] = df[col].apply(lambda x: fn_crypt(str(x)) if pd.notna(x) and x != 'Sin Dato' else x)
+
         display_query = query
         if params:
             for p in params:

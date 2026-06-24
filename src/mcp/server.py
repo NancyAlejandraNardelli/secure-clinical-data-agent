@@ -22,7 +22,13 @@ def consultar_estadisticas_hc(
     fecha_fin: str = None,
     solo_activos: bool = False,
     tipo_registro: str = None,
-    tipo_conteo: str = "pacientes"
+    tipo_conteo: str = "pacientes",
+    filtro_sexo: str = None,
+    filtro_zona: str = None,
+    filtro_servicio: str = None,
+    filtro_especialidad: str = None,
+    edad_min: int = None,
+    edad_max: int = None
 ) -> str:
     """Consulta estadísticas de pacientes en la vista v_historiaClinica.
     
@@ -45,6 +51,12 @@ def consultar_estadisticas_hc(
     - solo_activos: Filtrar solo diagnósticos que siguen activos (fechaCese nulo o futuro).
     - tipo_registro: Filtrar por tipo de registro o estructura (ej: 'Motivo de consulta', 'EVOLUCIÓN').
     - tipo_conteo: Determina si se cuentan pacientes únicos ("pacientes") o total de visitas/registros ("registros").
+    - filtro_sexo: Filtrar pacientes por sexo. Usualmente 'M' (Masculino) o 'F' (Femenino).
+    - filtro_zona: Filtrar por zona geográfica de procedencia (ej: 'Capital Federal', 'Conurbano').
+    - filtro_servicio: Filtrar por el nombre del servicio (ej: 'DIVISION URGENCIAS'). Búsqueda parcial.
+    - filtro_especialidad: Filtrar por la especialidad médica (ej: 'PEDIATRIA'). Búsqueda parcial.
+    - edad_min: Edad mínima (inclusive) en años para filtrar pacientes.
+    - edad_max: Edad máxima (inclusive) en años para filtrar pacientes.
     """
     res = operations.consultar_estadisticas_hc(
         agrupar_por=agrupar_por,
@@ -54,7 +66,13 @@ def consultar_estadisticas_hc(
         fecha_fin=fecha_fin,
         solo_activos=solo_activos,
         tipo_registro=tipo_registro,
-        tipo_conteo=tipo_conteo
+        tipo_conteo=tipo_conteo,
+        filtro_sexo=filtro_sexo,
+        filtro_zona=filtro_zona,
+        filtro_servicio=filtro_servicio,
+        filtro_especialidad=filtro_especialidad,
+        edad_min=edad_min,
+        edad_max=edad_max
     )
     
     if isinstance(res, str) and res.startswith("ERROR"):

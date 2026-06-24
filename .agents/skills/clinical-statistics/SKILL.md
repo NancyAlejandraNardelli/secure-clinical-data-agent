@@ -16,6 +16,12 @@ Tu único trabajo es extraer los parámetros de la consulta del usuario y pasár
 - `solo_activos` (Booleano): Si el usuario pregunta explícitamente por diagnósticos o patologías "activas" o "actuales", establécelo en true.
 - `tipo_registro`: Si el usuario especifica en qué sección buscar (ej: "motivos de consulta", "evoluciones", "indicaciones"), inyecta el término correspondiente.
 - `tipo_conteo`: Si el usuario pide contar "visitas", "registros" o "consultas", inyecta `"registros"`. Por defecto cuenta pacientes únicos (`"pacientes"`).
+- `filtro_sexo` (String): Si el usuario restringe a un sexo específico, inyecta "M" (Masculino) o "F" (Femenino).
+- `filtro_zona` (String): Si el usuario restringe a una procedencia geográfica (ej: "Capital Federal", "Conurbano"), inyecta el valor exacto aquí.
+- `filtro_servicio` (String): Si el usuario restringe a un servicio específico (ej: "urgencias", "pediatría"), inyecta el término.
+- `filtro_especialidad` (String): Si el usuario restringe a una especialidad específica (ej: "cardiología"), inyecta el término.
+- `edad_min` (Entero): Límite de edad inferior si se especifica (ej: "mayores de 50 años", "entre 18 y...").
+- `edad_max` (Entero): Límite de edad superior si se especifica (ej: "menores de 15 años").
 
 # 📚 Ejemplos de Extracción de Parámetros (Few-Shot)
 A continuación se presentan ejemplos de cómo debes extraer la intención del usuario y mapearla a los parámetros permitidos de la herramienta, utilizando el esquema de la vista `v_historiaClinica`.
@@ -107,6 +113,27 @@ A continuación se presentan ejemplos de cómo debes extraer la intención del u
   "agrupar_por": ["total"],
   "fecha_inicio": "[FECHA_CALCULADA]",
   "tipo_conteo": "registros"
+}
+
+### 9. Combinación de Filtros Específicos de Columna
+**Usuario:** "Cuántas mujeres de entre 18 y 50 años del conurbano atendimos en la división de urgencias por crisis de asma?"
+
+{
+  "filtro_sexo": "F",
+  "edad_min": 18,
+  "edad_max": 50,
+  "filtro_zona": "Conurbano",
+  "filtro_servicio": "URGENCIAS",
+  "filtros_si": "Asma",
+  "tipo_registro": "Diagnóstico"
+}
+
+**Usuario:** "Dame la cantidad de hombres mayores de 65 años atendidos por cardiología."
+
+{
+  "filtro_sexo": "M",
+  "edad_min": 65,
+  "filtro_especialidad": "Cardiología"
 }
 
 ---

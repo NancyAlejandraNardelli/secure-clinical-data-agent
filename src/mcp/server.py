@@ -28,7 +28,9 @@ def consultar_estadisticas_hc(
     filtro_servicio: str = None,
     filtro_especialidad: str = None,
     edad_min: int = None,
-    edad_max: int = None
+    edad_max: int = None,
+    modo_filtro: str = "AND",
+    metricas: str = "conteo"
 ) -> str:
     """Consulta estadísticas de pacientes en la vista v_historiaClinica.
     
@@ -57,6 +59,14 @@ def consultar_estadisticas_hc(
     - filtro_especialidad: Filtrar por la especialidad médica (ej: 'PEDIATRIA'). Búsqueda parcial.
     - edad_min: Edad mínima (inclusive) en años para filtrar pacientes.
     - edad_max: Edad máxima (inclusive) en años para filtrar pacientes.
+    - modo_filtro: Lógica de combinación para los términos en filtros_si.
+      'AND' (default): el paciente debe tener TODOS los términos (intersección). Usar cuando el usuario dice "X e Y", "X con Y", "X y Y".
+      'OR': el paciente debe tener AL MENOS UNO de los términos (unión). Usar cuando el usuario dice "X o Y", "X u Y".
+    - metricas: Tipo de estadísticas a calcular. Valores permitidos:
+      - 'conteo' (default): contar pacientes o registros (comportamiento normal).
+      - 'estadisticas_edad': estadísticas descriptivas completas sobre la edad.
+      - 'estadisticas_visitas': estadísticas descriptivas sobre el número de visitas por paciente.
+      - 'estadisticas_antiguedad': estadísticas descriptivas (en días) sobre la antigüedad de los diagnósticos (fechaInicio).
     """
     res = operations.consultar_estadisticas_hc(
         agrupar_por=agrupar_por,
@@ -72,7 +82,9 @@ def consultar_estadisticas_hc(
         filtro_servicio=filtro_servicio,
         filtro_especialidad=filtro_especialidad,
         edad_min=edad_min,
-        edad_max=edad_max
+        edad_max=edad_max,
+        modo_filtro=modo_filtro,
+        metricas=metricas
     )
     
     if isinstance(res, str) and res.startswith("ERROR"):

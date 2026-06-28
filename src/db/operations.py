@@ -335,13 +335,25 @@ def fn_crypt(cadena: str) -> str:
             crypt += char
     return crypt
 
-def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = None, use_csv_fallback: bool = False) -> tuple[str, list]:
-    """Construye una subconsulta optimizada usando INTERSECT y EXCEPT.
+def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = None, use_csv_fallback: bool = False, modo_filtro: str = "AND") -> tuple[str, list]:
+    """Construye una subconsulta optimizada usando INTERSECT/UNION y EXCEPT.
     
     Busca los términos exclusivamente en la columna 'valor' (que contiene los datos encriptados).
+    
+    Args:
+        modo_filtro: 'AND' usa INTERSECT (paciente debe tener TODOS los términos).
+                     'OR' usa UNION (paciente debe tener AL MENOS UNO de los términos).
     """
     subqueries = []
     params = []
+    
+    # Normalizar modo_filtro
+    modo = modo_filtro.upper().strip() if modo_filtro else "AND"
+    if modo not in ("AND", "OR"):
+        modo = "AND"
+    
+    # Operador SQL: INTERSECT para AND, UNION para OR
+    set_operator = "INTERSECT" if modo == "AND" else "UNION"
     
     if filtros_si:
         terms_si = list(dict.fromkeys([t.strip() for t in filtros_si.split(",") if t.strip()]))
@@ -364,7 +376,7 @@ def build_matching_patients_subquery(filtros_si: str = None, filtros_no: str = N
             )""")
             
     if subqueries:
-        pos_sql = "\n            INTERSECT\n            ".join(subqueries)
+        pos_sql = f"\n            {set_operator}\n            ".join(subqueries)
     else:
         pos_sql = "SELECT DISTINCT hc_paciente FROM v_historiaClinica"
         
@@ -415,7 +427,9 @@ def consultar_estadisticas_hc(
     filtro_servicio: str = None,
     filtro_especialidad: str = None,
     edad_min: int = None,
-    edad_max: int = None
+    edad_max: int = None,
+    modo_filtro: str = "AND",
+    metricas: str = "conteo"
 ) -> str | dict:
     conn = get_db_connection()
     use_csv_fallback = (conn == "FALLBACK_CSV")
@@ -569,16 +583,24 @@ def consultar_estadisticas_hc(
     
     # Filtro clínico de cohorte (filtros_si / filtros_no)
     if filtros_si or filtros_no:
-        cohort_sql, cohort_params = build_matching_patients_subquery(filtros_si, filtros_no, use_csv_fallback=use_csv_fallback)
+        cohort_sql, cohort_params = build_matching_patients_subquery(filtros_si, filtros_no, use_csv_fallback=use_csv_fallback, modo_filtro=modo_filtro)
         where_clauses.append(f"hc_paciente IN (\n        {cohort_sql}\n    )")
         params.extend(cohort_params)
         
     # Filtro temporal (hc_fecha)
+    # Usamos CONVERT con estilo 120 (ISO 8601: yyyy-mm-dd hh:mi:ss) para evitar
+    # errores de conversión nvarchar→datetime por configuración regional del servidor
     if fecha_inicio:
-        where_clauses.append("hc_fecha >= ?")
+        if use_csv_fallback:
+            where_clauses.append("hc_fecha >= ?")
+        else:
+            where_clauses.append("hc_fecha >= CONVERT(DATETIME, ?, 120)")
         params.append(fecha_inicio)
     if fecha_fin:
-        where_clauses.append("hc_fecha <= ?")
+        if use_csv_fallback:
+            where_clauses.append("hc_fecha <= ?")
+        else:
+            where_clauses.append("hc_fecha <= CONVERT(DATETIME, ?, 120)")
         params.append(fecha_fin)
         
     # Filtro de diagnóstico activo (fechaInicio y fechaCese)
@@ -640,6 +662,173 @@ def consultar_estadisticas_hc(
         
     where_sql = "\n      AND ".join(where_clauses)
     
+    # ═══════════════════════════════════════════════════════════════════════
+    # FUNCIONES AUXILIARES REUTILIZABLES
+    # ═══════════════════════════════════════════════════════════════════════
+    def calcular_estadisticas(series, prefijo=""):
+        """Calcula 10 métricas estadísticas descriptivas sobre una serie numérica."""
+        n = len(series)
+        p = f"{prefijo}_" if prefijo else ""
+        return pd.Series({
+            'Total_Pacientes': int(n),
+            f'{p}Promedio': round(series.mean(), 1),
+            f'{p}Mediana': round(float(series.median()), 1),
+            f'{p}Desv_Estandar': round(series.std(), 1) if n > 1 else 0.0,
+            f'{p}Minimo': int(series.min()) if series.min() == int(series.min()) else round(float(series.min()), 1),
+            f'{p}Maximo': int(series.max()) if series.max() == int(series.max()) else round(float(series.max()), 1),
+            f'{p}P25': round(float(series.quantile(0.25)), 1),
+            f'{p}P75': round(float(series.quantile(0.75)), 1),
+            f'{p}Rango_IQR': round(float(series.quantile(0.75) - series.quantile(0.25)), 1),
+            f'{p}Rango': int(series.max() - series.min())
+        })
+    
+    def formatear_tabla_md(df_stats):
+        """Convierte un DataFrame de estadísticas a tabla markdown."""
+        headers = df_stats.columns.tolist()
+        md = "| " + " | ".join(str(h) for h in headers) + " |\n"
+        md += "|" + "|".join(["---"] * len(headers)) + "|\n"
+        for _, row in df_stats.iterrows():
+            md += "| " + " | ".join(str(x) for x in row.values) + " |\n"
+        return md
+    
+    def ejecutar_query_raw(query_sql, params_list):
+        """Ejecuta una query y devuelve el DataFrame crudo + la query formateada."""
+        q = query_sql
+        if use_csv_fallback:
+            import duckdb
+            q = q.replace("v_historiaClinica", "read_csv_auto('data/sample_v_historiaClinica.csv', sep=';', header=True)")
+            q = q.replace("GETDATE()", "CURRENT_DATE")
+            df_result = duckdb.execute(q, params_list).df()
+        else:
+            df_result = pd.read_sql_query(q, conn, params=params_list)
+        
+        display_q = q
+        if params_list:
+            for p in params_list:
+                display_q = display_q.replace('?', f"'{p}'", 1)
+        return df_result, display_q
+    
+    def ordenar_rango_etario(df_stats):
+        """Ordena filas por rango etario si esa dimensión está presente."""
+        if 'Rango_Etario' in df_stats.columns:
+            age_order = ['Pediátrico (0-14)', 'Jóvenes (15-24)', 'Adultos (25-64)', 'Adultos Mayores / Geriatría (65+)']
+            df_stats['_sort'] = df_stats['Rango_Etario'].apply(lambda x: age_order.index(x) if x in age_order else 999)
+            df_stats = df_stats.sort_values('_sort').drop(columns=['_sort'])
+        return df_stats
+    
+    def procesar_metricas(query_sql, col_valor, group_aliases, prefijo=""):
+        """Pipeline genérico: ejecutar query → agrupar → calcular stats → formatear."""
+        try:
+            df_raw, display_q = ejecutar_query_raw(query_sql, params)
+            
+            if df_raw.empty:
+                return {"sql_ejecutado": display_q.strip(), "datos": "No se encontraron pacientes para estos criterios."}
+            
+            if group_aliases:
+                stats_df = df_raw.groupby(group_aliases)[col_valor].apply(
+                    lambda s: calcular_estadisticas(s, prefijo)
+                ).unstack().reset_index()
+                stats_df = stats_df.sort_values('Total_Pacientes', ascending=False)
+            else:
+                stats = calcular_estadisticas(df_raw[col_valor], prefijo)
+                stats_df = pd.DataFrame([stats])
+            
+            # Convertir columnas enteras
+            int_cols = ['Total_Pacientes'] + [c for c in stats_df.columns if 'Rango' in c and 'IQR' not in c or 'Minimo' in c or 'Maximo' in c]
+            for col in int_cols:
+                if col in stats_df.columns:
+                    try:
+                        stats_df[col] = stats_df[col].astype(int)
+                    except (ValueError, TypeError):
+                        pass
+            
+            stats_df = ordenar_rango_etario(stats_df)
+            return {"sql_ejecutado": display_q.strip(), "datos": formatear_tabla_md(stats_df)}
+        except Exception as e:
+            return f"ERROR al ejecutar la consulta SQL: {str(e)}"
+        finally:
+            if not use_csv_fallback and conn:
+                conn.close()
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # MODOS ESTADÍSTICOS (metricas != "conteo")
+    # ═══════════════════════════════════════════════════════════════════════
+    metricas_mode = metricas.lower().strip() if metricas else "conteo"
+    
+    if metricas_mode == "estadisticas_edad":
+        # Cálculo de edad numérica exacta
+        raw_age_tsql = """(DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - 
+            CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() 
+            THEN 1 ELSE 0 END)"""
+        raw_age_duckdb = "date_diff('year', CAST(pac_Nacimiento AS DATE), CURRENT_DATE)"
+        raw_age = raw_age_duckdb if use_csv_fallback else raw_age_tsql
+        
+        cte_cols = ["hc_paciente", f"{raw_age} AS edad"]
+        group_aliases = []
+        for k in valid_keys:
+            cte_cols.append(DIMENSIONS[k]["select"])
+            group_aliases.append(DIMENSIONS[k]["alias"])
+        
+        query = f"""
+        WITH pacientes_unicos AS (
+            SELECT DISTINCT {', '.join(cte_cols)}
+            FROM v_historiaClinica
+            WHERE {where_sql}
+        )
+        SELECT * FROM pacientes_unicos
+        WHERE edad IS NOT NULL AND edad >= 0 AND edad <= 130
+        """
+        return procesar_metricas(query, 'edad', group_aliases, prefijo="Edad")
+    
+    elif metricas_mode == "estadisticas_visitas":
+        # Contar visitas (hc_id distintos) por paciente
+        cte_cols = ["hc_paciente", "COUNT(DISTINCT hc_id) AS visitas"]
+        group_aliases = []
+        group_by_inner = ["hc_paciente"]
+        
+        for k in valid_keys:
+            dim = DIMENSIONS[k]
+            cte_cols.append(dim["select"])
+            group_aliases.append(dim["alias"])
+            group_by_inner.append(dim["group"])
+        
+        query = f"""
+        SELECT {', '.join(cte_cols)}
+        FROM v_historiaClinica
+        WHERE {where_sql}
+        GROUP BY {', '.join(group_by_inner)}
+        """
+        return procesar_metricas(query, 'visitas', group_aliases, prefijo="Visitas")
+    
+    elif metricas_mode == "estadisticas_antiguedad":
+        # Antigüedad del diagnóstico en días desde fechaInicio
+        if use_csv_fallback:
+            days_calc = "date_diff('day', CAST(fechaInicio AS DATE), CURRENT_DATE)"
+        else:
+            days_calc = "DATEDIFF(DAY, fechaInicio, GETDATE())"
+        
+        cte_cols = ["hc_paciente", f"{days_calc} AS dias_diagnostico"]
+        group_aliases = []
+        for k in valid_keys:
+            cte_cols.append(DIMENSIONS[k]["select"])
+            group_aliases.append(DIMENSIONS[k]["alias"])
+        
+        extra_where = f"{where_sql}\n      AND fechaInicio IS NOT NULL"
+        
+        query = f"""
+        WITH diagnosticos AS (
+            SELECT DISTINCT {', '.join(cte_cols)}
+            FROM v_historiaClinica
+            WHERE {extra_where}
+        )
+        SELECT * FROM diagnosticos
+        WHERE dias_diagnostico IS NOT NULL AND dias_diagnostico >= 0
+        """
+        return procesar_metricas(query, 'dias_diagnostico', group_aliases, prefijo="Dias")
+    
+    # ═══════════════════════════════════════════════════════════════════════
+    # MODO CONTEO (comportamiento original, metricas="conteo")
+    # ═══════════════════════════════════════════════════════════════════════
     # 5. Armar la consulta SQL
     metric_sql = "COUNT(DISTINCT hc_paciente) AS Total_Pacientes" if tipo_conteo == "pacientes" else "COUNT(*) AS Total_Registros"
     alias_count = "Total_Pacientes" if tipo_conteo == "pacientes" else "Total_Registros"
@@ -671,12 +860,8 @@ def consultar_estadisticas_hc(
             # Adaptaciones para DuckDB (SQLite / Postgres engine)
             query = query.replace("v_historiaClinica", "read_csv_auto('data/sample_v_historiaClinica.csv', sep=';', header=True)")
             query = query.replace("GETDATE()", "CURRENT_DATE")
-            if valid_keys:
-                query += "\n        LIMIT 50"
             df = duckdb.execute(query, params).df()
         else:
-            if valid_keys:
-                query = query.replace("SELECT ", "SELECT TOP 50 ", 1)
             df = pd.read_sql_query(query, conn, params=params)
         
         if use_csv_fallback and not df.empty:

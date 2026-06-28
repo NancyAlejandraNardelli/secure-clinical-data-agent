@@ -22,6 +22,17 @@ Tu único trabajo es extraer los parámetros de la consulta del usuario y pasár
 - `filtro_especialidad` (String): Si el usuario restringe a una especialidad específica (ej: "cardiología"), inyecta el término.
 - `edad_min` (Entero): Límite de edad inferior si se especifica (ej: "mayores de 50 años", "entre 18 y...").
 - `edad_max` (Entero): Límite de edad superior si se especifica (ej: "menores de 15 años").
+- `modo_filtro` (String): Lógica de combinación para los términos en `filtros_si`. Valores: `"AND"` (default) o `"OR"`.
+  - `"AND"`: el paciente debe tener TODOS los términos (intersección). Señales: "X e Y", "X con Y", "X y Y".
+  - `"OR"`: el paciente debe tener AL MENOS UNO (unión). Señales: "X o Y", "X u Y", "cualquiera de".
+- `metricas` (String): Tipo de métricas a calcular. Valores: `"conteo"` (default), `"estadisticas_edad"`, `"estadisticas_visitas"` o `"estadisticas_antiguedad"`.
+  - `"conteo"`: devuelve conteo de pacientes/registros (comportamiento normal).
+  - `"estadisticas_edad"`: devuelve panel estadístico descriptivo completo sobre la edad: Total, Promedio, Mediana, Desv_Estandar, Edad_Min, Edad_Max, P25, P75, Rango_Intercuartil, Rango.
+    - Señales: "promedio de edad", "edad media", "mediana de edad", "perfil etario estadístico", "estadísticas de edad".
+  - `"estadisticas_visitas"`: devuelve panel estadístico descriptivo completo sobre la cantidad de visitas/consultas por paciente.
+    - Señales: "promedio de visitas", "mediana de consultas", "promedio de consultas por paciente", "desvío estándar de visitas".
+  - `"estadisticas_antiguedad"`: devuelve panel estadístico descriptivo completo (en días) de la antigüedad de los diagnósticos activos (desde fechaInicio).
+    - Señales: "antigüedad promedio del diagnóstico", "antigüedad de la enfermedad", "tiempo promedio con la enfermedad", "días transcurridos desde el diagnóstico".
 
 # 📚 Ejemplos de Extracción de Parámetros (Few-Shot)
 A continuación se presentan ejemplos de cómo debes extraer la intención del usuario y mapearla a los parámetros permitidos de la herramienta, utilizando el esquema de la vista `v_historiaClinica`.
@@ -134,6 +145,61 @@ A continuación se presentan ejemplos de cómo debes extraer la intención del u
   "filtro_sexo": "M",
   "edad_min": 65,
   "filtro_especialidad": "Cardiología"
+}
+
+### 10. Lógica AND vs OR en Filtros Clínicos (modo_filtro)
+**Usuario:** "Cuántos pacientes tienen Neumonía o Bronquiolitis, agrupados por zona."
+*(El usuario dice "o" → modo_filtro='OR' para que incluya pacientes con CUALQUIERA de los dos)*
+
+{
+  "agrupar_por": ["zona"],
+  "filtros_si": "Neumonía, Bronquiolitis",
+  "modo_filtro": "OR"
+}
+
+**Usuario:** "Pacientes que tienen Hipertensión y también Diabetes, por rango etario."
+*(El usuario dice "y" + "también" → modo_filtro='AND' para que incluya pacientes con AMBOS)*
+
+{
+  "agrupar_por": ["edad"],
+  "filtros_si": "Hipertensión, Diabetes",
+  "modo_filtro": "AND"
+}
+
+### 11. Estadisticas Descriptivas de Edad (metricas)
+**Usuario:** "Cual es el promedio de edad de los pacientes con Asma?"
+*(El usuario pide promedio -> metricas='estadisticas_edad'. Devuelve: Promedio, Mediana, Min, Max, Desvio, P25, P75, etc.)*
+
+{
+  "filtros_si": "Asma",
+  "metricas": "estadisticas_edad"
+}
+
+### 12. Estadisticas de Edad Agrupadas
+**Usuario:** "Dame el promedio y mediana de edad de los pacientes diabeticos, separados por sexo y zona."
+
+{
+  "agrupar_por": ["sexo", "zona"],
+  "filtros_si": "Diabetes",
+  "metricas": "estadisticas_edad"
+}
+
+### 13. Estadísticas Descriptivas de Visitas (metricas)
+**Usuario:** "¿Cuál es el promedio de visitas por paciente para los hipertensos?"
+*(El usuario pide promedio de visitas/consultas -> metricas='estadisticas_visitas'. Devuelve: Promedio, Mediana, Desvio, etc.)*
+
+{
+  "filtros_si": "Hipertensión",
+  "metricas": "estadisticas_visitas"
+}
+
+### 14. Estadísticas Descriptivas de Antigüedad del Diagnóstico (metricas)
+**Usuario:** "¿Cuál es la antigüedad promedio del diagnóstico de asma en días?"
+*(El usuario pide antigüedad del diagnóstico -> metricas='estadisticas_antiguedad'. Devuelve: Promedio, Mediana, etc.)*
+
+{
+  "filtros_si": "Asma",
+  "metricas": "estadisticas_antiguedad"
 }
 
 ---

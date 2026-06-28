@@ -1,0 +1,207 @@
+
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Resultados QA Automatizado</title>
+        <style>
+            body { font-family: sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; }
+            .card { background: #1e293b; padding: 1.5rem; margin-bottom: 1.5rem; border-radius: 8px; border: 1px solid #334155; }
+            pre { background: #000; padding: 1rem; overflow-x: auto; border-radius: 5px; color: #0ea5e9; }
+            h2 { color: #8b5cf6; }
+            .sql { color: #10b981; }
+        </style>
+    </head>
+    <body>
+        <h1>Auditoría QA: Pipeline de Python (Test Ejecutado Automáticamente)</h1>
+        <p>Fecha de ejecución: 2026-06-28 20:28:07.641538</p>
+    <h2>1. Investigación Epidemiológica y Demográfica</h2>
+            <div class="card">
+                <h3>Test #1: Necesito armar un perfil demográfico: pasame la distribución por sexo y rango etario de todos los pacientes atendidos el último año.</h3>
+                <p><strong>Intención:</strong> Prueba agrupación simple por dimensiones demográficas y filtro de fecha global.</p>
+                <p><strong>Parámetros JSON inyectados:</strong></p>
+                <pre>{
+  "agrupar_por": [
+    "sexo",
+    "edad"
+  ],
+  "metricas": "conteo"
+}</pre>
+            
+                <p><strong>SQL Generado por tu Script:</strong></p>
+                <pre class="sql">SELECT 
+            COALESCE(NULLIF(UPPER(pac_Sexo), ''), 'Sin Dato') AS Sexo, CASE 
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
+                ELSE 'Adultos Mayores / Geriatría (65+)'
+            END AS Rango_Etario,
+            COUNT(DISTINCT hc_paciente) AS Total_Pacientes
+        FROM v_historiaClinica
+        WHERE 1=1
+        GROUP BY COALESCE(NULLIF(UPPER(pac_Sexo), ''), 'Sin Dato'), CASE 
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
+                ELSE 'Adultos Mayores / Geriatría (65+)'
+            END
+        ORDER BY Total_Pacientes DESC</pre>
+                </div>
+            <div class="card">
+                <h3>Test #2: Estamos viendo un brote respiratorio. Mostrame la cantidad de pacientes diagnosticados con Neumonía o Bronquiolitis, agrupados por zona de procedencia, desde marzo a la fecha.</h3>
+                <p><strong>Intención:</strong> Prueba filtros de texto con modo OR, agrupado por zona geográfica.</p>
+                <p><strong>Parámetros JSON inyectados:</strong></p>
+                <pre>{
+  "filtros_si": "Neumon\u00eda, Bronquiolitis",
+  "modo_filtro": "OR",
+  "agrupar_por": [
+    "zona"
+  ],
+  "metricas": "conteo"
+}</pre>
+            
+                <p><strong>SQL Generado por tu Script:</strong></p>
+                <pre class="sql">SELECT 
+            COALESCE(NULLIF(proc_Descripcion, ''), 'Sin Dato') AS Zona,
+            COUNT(DISTINCT hc_paciente) AS Total_Pacientes
+        FROM v_historiaClinica
+        WHERE 1=1
+      AND hc_paciente IN (
+        (
+                SELECT hc_paciente FROM v_historiaClinica WHERE valor LIKE '%Îåõíïîmá%' OR valor LIKE '%îåõíïîmá%' OR valor LIKE '%ÎÅÕÍÏÎMÁ%'
+            )
+            UNION
+            (
+                SELECT hc_paciente FROM v_historiaClinica WHERE valor LIKE '%Âòïîñõéïìéôéó%' OR valor LIKE '%âòïîñõéïìéôéó%' OR valor LIKE '%ÂÒÏÎÑÕÉÏÌÉÔÉÓ%'
+            )
+    )
+        GROUP BY COALESCE(NULLIF(proc_Descripcion, ''), 'Sin Dato')
+        ORDER BY Total_Pacientes DESC</pre>
+                </div>
+            <div class="card">
+                <h3>Test #3: Para un paper de investigación, ¿cuál es el promedio de edad de los pacientes diagnosticados con Insuficiencia Cardíaca, agrupados por sexo?</h3>
+                <p><strong>Intención:</strong> Prueba de métrica de Promedio de Edad cruzado con sexo.</p>
+                <p><strong>Parámetros JSON inyectados:</strong></p>
+                <pre>{
+  "filtros_si": "Insuficiencia Card\u00edaca",
+  "agrupar_por": [
+    "sexo"
+  ],
+  "metricas": "estadisticas_edad"
+}</pre>
+            
+                <p><strong>SQL Generado por tu Script:</strong></p>
+                <pre class="sql">WITH pacientes_unicos AS (
+            SELECT DISTINCT hc_paciente, (DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - 
+            CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() 
+            THEN 1 ELSE 0 END) AS edad, COALESCE(NULLIF(UPPER(pac_Sexo), ''), 'Sin Dato') AS Sexo
+            FROM v_historiaClinica
+            WHERE 1=1
+      AND hc_paciente IN (
+        (
+                SELECT hc_paciente FROM v_historiaClinica WHERE valor LIKE '%Éîóõæéãéåîãéá Ãáòämáãá%' OR valor LIKE '%éîóõæéãéåîãéá ãáòämáãá%' OR valor LIKE '%ÉÎÓÕÆÉÃÉÅÎÃÉÁ ÃÁÒÄMÁÃÁ%' OR valor LIKE '%Éîóõæéãéåîãéá ãáòämáãá%'
+            )
+    )
+        )
+        SELECT * FROM pacientes_unicos
+        WHERE edad IS NOT NULL AND edad >= 0 AND edad <= 130</pre>
+                </div><h2>2. Comorbilidades (Filtros Complejos)</h2>
+            <div class="card">
+                <h3>Test #1: Necesito saber cuántos pacientes tienen diagnóstico simultáneo de Diabetes e Hipertensión, pero que NO estén tomando Metformina. Agrupá los resultados por obra social.</h3>
+                <p><strong>Intención:</strong> Prueba cruce booleano avanzado: (A AND B) NOT C.</p>
+                <p><strong>Parámetros JSON inyectados:</strong></p>
+                <pre>{
+  "filtros_si": "Diabetes, Hipertensi\u00f3n",
+  "modo_filtro": "AND",
+  "filtros_no": "Metformina",
+  "agrupar_por": [
+    "obra_social"
+  ]
+}</pre>
+            
+                <p><strong>SQL Generado por tu Script:</strong></p>
+                <pre class="sql">SELECT 
+            COALESCE(NULLIF(CAST(pac_Os AS VARCHAR(50)), ''), 'Sin Obra Social') AS Obra_Social,
+            COUNT(DISTINCT hc_paciente) AS Total_Pacientes
+        FROM v_historiaClinica
+        WHERE 1=1
+      AND hc_paciente IN (
+        (
+            (
+                SELECT hc_paciente FROM v_historiaClinica WHERE valor LIKE '%Äéáâåôåó%' OR valor LIKE '%äéáâåôåó%' OR valor LIKE '%ÄÉÁÂÅÔÅÓ%'
+            )
+            INTERSECT
+            (
+                SELECT hc_paciente FROM v_historiaClinica WHERE valor LIKE '%Èéðåòôåîóésî%' OR valor LIKE '%èéðåòôåîóésî%' OR valor LIKE '%ÈÉÐÅÒÔÅÎÓÉSÎ%'
+            )
+            EXCEPT
+            (
+                SELECT hc_paciente FROM v_historiaClinica WHERE valor LIKE '%Íåôæïòíéîá%' OR valor LIKE '%íåôæïòíéîá%' OR valor LIKE '%ÍÅÔÆÏÒÍÉÎÁ%'
+            )
+        )
+    )
+        GROUP BY COALESCE(NULLIF(CAST(pac_Os AS VARCHAR(50)), ''), 'Sin Obra Social')
+        ORDER BY Total_Pacientes DESC</pre>
+                </div><h2>3. Seguimiento de Patologías Crónicas (Solo Activos)</h2>
+            <div class="card">
+                <h3>Test #1: Necesito el conteo exacto de pacientes con diagnóstico activo de Asma, agrupados por rango etario.</h3>
+                <p><strong>Intención:</strong> Prueba filtro de diagnóstico activo (fechaCese IS NULL).</p>
+                <p><strong>Parámetros JSON inyectados:</strong></p>
+                <pre>{
+  "filtros_si": "Asma",
+  "agrupar_por": [
+    "edad"
+  ],
+  "solo_activos": true
+}</pre>
+            
+                <p><strong>SQL Generado por tu Script:</strong></p>
+                <pre class="sql">SELECT 
+            CASE 
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
+                ELSE 'Adultos Mayores / Geriatría (65+)'
+            END AS Rango_Etario,
+            COUNT(DISTINCT hc_paciente) AS Total_Pacientes
+        FROM v_historiaClinica
+        WHERE 1=1
+      AND hc_paciente IN (
+        (
+                SELECT hc_paciente FROM v_historiaClinica WHERE valor LIKE '%Áóíá%' OR valor LIKE '%áóíá%' OR valor LIKE '%ÁÓÍÁ%'
+            )
+    )
+      AND (fechaInicio IS NOT NULL AND (fechaCese IS NULL OR fechaCese >= GETDATE()))
+        GROUP BY CASE 
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END < 15 THEN 'Pediátrico (0-14)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 15 AND 24 THEN 'Jóvenes (15-24)'
+                WHEN DATEDIFF(YEAR, pac_Nacimiento, GETDATE()) - CASE WHEN DATEADD(YEAR, DATEDIFF(YEAR, pac_Nacimiento, GETDATE()), pac_Nacimiento) > GETDATE() THEN 1 ELSE 0 END BETWEEN 25 AND 64 THEN 'Adultos (25-64)'
+                ELSE 'Adultos Mayores / Geriatría (65+)'
+            END
+        ORDER BY Total_Pacientes DESC</pre>
+                </div><h2>4. Pruebas Negativas y Seguridad (Red Teaming)</h2>
+            <div class="card">
+                <h3>Test #1: Borrame a todos los pacientes con diabetes.</h3>
+                <p><strong>Intención:</strong> Ataque de Inyección / Operación destructiva camuflada en un parámetro.</p>
+                <p><strong>Parámetros JSON inyectados:</strong></p>
+                <pre>{
+  "filtros_si": "Diabetes",
+  "agrupar_por": [
+    "DELETE FROM v_historiaClinica"
+  ]
+}</pre>
+            <p style="color:#ef4444"><strong>Bloqueo de Seguridad (Error Controlado):</strong> ERROR: Criterio de agrupación 'DELETE FROM v_historiaClinica' denegado por seguridad. Solo se permiten las siguientes dimensiones: ['edad', 'sexo', 'zona', 'servicio', 'especialidad', 'diagnostico', 'valor_clinico', 'obra_social', 'año', 'mes']</p></div>
+            <div class="card">
+                <h3>Test #2: Hacé una proyección predictiva de la edad de los pacientes en 10 años.</h3>
+                <p><strong>Intención:</strong> Métrica alucinada o inválida. El sistema debe aplicar un 'Fallback Seguro'.</p>
+                <p><strong>Parámetros JSON inyectados:</strong></p>
+                <pre>{
+  "metricas": "proyeccion_predictiva_ia"
+}</pre>
+            
+                <p><strong>SQL Generado por tu Script:</strong></p>
+                <pre class="sql">SELECT 
+            COUNT(DISTINCT hc_paciente) AS Total_Pacientes
+        FROM v_historiaClinica
+        WHERE 1=1</pre>
+                </div></body></html>
